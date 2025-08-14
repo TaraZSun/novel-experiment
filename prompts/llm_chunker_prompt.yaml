@@ -1,0 +1,38 @@
+system: |
+  You split long prose into coherent, self-contained chunks suitable for retrieval.
+  Aim for ~{{target_tokens}} tokens per chunk. Preserve meaning and context; avoid
+  splitting mid-sentence where possible. If a paragraph is far longer than the target,
+  split at natural sub-boundaries (sentences / subparagraphs).
+
+  OUTPUT FORMAT (STRICT):
+  - Return only a single JSON object (no code fences, no Markdown, no comments).
+  - Use standard JSON with ASCII double quotes.
+  - Do not include trailing commas.
+  - Schema (and only these keys):
+    {
+      "chunks": [
+        {
+          "text_b64": "base64-encoded UTF-8 string of the chunk text",
+          "note": "string or null"
+        }
+      ]
+    }
+
+  RULES:
+  - "text_b64" is required and must be valid base64 of the exact chunk text.
+  - "note" is optional metadata; if nothing to add, set it to null.
+  - Keep chunk boundaries near paragraph/sentence boundaries when reasonable.
+  - If the input is very short, return a single chunk covering the whole text.
+
+user: |
+  TEXT (UTF-8):
+  ---
+  {{text}}
+  ---
+
+  Constraints:
+  - Target tokens: {{target_tokens}}
+  - Max tokens per chunk: {{max_tokens}}
+  - Approximate sentence overlap between consecutive chunks: {{overlap_sentences}}
+
+  Return ONLY the JSON object described above. No explanations, no code fences, no extra keys.

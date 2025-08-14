@@ -1,0 +1,8 @@
+nltk
+tiktoken
+openai
+sentence_transformers
+numpy
+openai>=1.0.0
+python-dotenv
+pyyaml
