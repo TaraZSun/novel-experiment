@@ -1,7 +1,7 @@
 import abc
 import tiktoken
-from typing import List, Dict
 from bs4 import BeautifulSoup
+from utils import schema
 import re
 import logging
 from constants import (
@@ -25,7 +25,7 @@ class BaseChunker(abc.ABC):
         return len(self.tokenizer.encode(text))
 
     @abc.abstractmethod
-    def chunk(self, text: str) -> List[Dict]:
+    def chunk(self, text: str) -> list[schema.Chunk]:
         pass
 
     def _preprocess_text(self, text: str) -> str:
