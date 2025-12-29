@@ -8,16 +8,6 @@ from utils import schema, write_chunks
 
 
 class SemanticChunker(BaseChunker):
-    """
-    Paragraph-level semantic chunker:
-      1) Split by blank lines
-      2) Pre-collapse consecutive very short paragraphs to reduce fragmentation
-      3) Merge adjacent paragraphs based on semantic similarity + "fill-first" rule
-      4) Hard-split any chunks that exceed the token limit
-      5) Greedy post-packing to bring small chunks closer to chunk_size (~500)
-    Output: list of utils.schema.Chunk(id, text, token_count)
-    """
-
     def __init__(
         self,
         chunk_size: int = CHUNK_SIZE,
