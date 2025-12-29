@@ -5,32 +5,24 @@ from sentence_transformers import SentenceTransformer
 import numpy as np
 import re
 from utils import schema, write_chunks
-
+from chunkers.embeddings.base_embedder import BaseEmbedder
+from settings import ChunkerConfig
+from chunkers.base_chunker import BaseChunker
 
 class SemanticChunker(BaseChunker):
-    """
-    Paragraph-level semantic chunker:
-      1) Split by blank lines
-      2) Pre-collapse consecutive very short paragraphs to reduce fragmentation
-      3) Merge adjacent paragraphs based on semantic similarity + "fill-first" rule
-      4) Hard-split any chunks that exceed the token limit
-      5) Greedy post-packing to bring small chunks closer to chunk_size (~500)
-    Output: list of utils.schema.Chunk(id, text, token_count)
-    """
 
     def __init__(
         self,
-        chunk_size: int = CHUNK_SIZE,
-        threshold: float = 0.8,           # similarity threshold (0.75–0.85 works well)
-        pack_fill: float = 0.95,          # post-pack target fill ratio (0.9–0.98)
-        precollapse_min_tokens: int = 80, # minimum tokens for pre-collapse step
-        joiner: str = "\n\n",             # separator between merged paragraphs
+        *,
+        config: ChunkerConfig,
+        embedder: BaseEmbedder,
+        threshold: int=0.8,
+        joiner: str="\n\n",
     ) -> None:
-        super().__init__(chunk_size)
+        super().__init__(config=config)
         self.model = SentenceTransformer("all-MiniLM-L6-v2")
         self.threshold = threshold
-        self.pack_fill = pack_fill
-        self.precollapse_min_tokens = precollapse_min_tokens
+        self.embedder = embedder
         self.joiner = joiner
 
     def chunk(self, text: str) -> list[schema.Chunk]:

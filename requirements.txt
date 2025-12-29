@@ -8,3 +8,4 @@ python-dotenv
 pyyaml
 bs4
 faiss-cpu
+pydantic

@@ -1,11 +1,12 @@
-# constants.py
+from __future__ import annotations
+import consts
 from dataclasses import dataclass
 
 @dataclass()
 class ChunkConfig:
-    chunk_size:int = 500
-    overlap: int = 50
-    encoding_name: str = "cl100k_base"
+    chunk_size:int = consts.CHUNK_SIZE
+    overlap: int = consts.OVERLAP
+    encoding_name: str = consts.ENCODING_NAME
     
 @dataclass(frozen=True)
 class PreprocessConfig:

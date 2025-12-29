@@ -5,10 +5,7 @@ import st_embedder
 import openai_embedder
 
 def build_embedder(config: EmbeddingConfig)->base_embedder.BaseEmbedder:
-    if config.local_embedding_model:
-        provider = config.provider or "st"
-    else:
-        provider = config.provider or "openai"
+    provider = config.provider
 
     if provider=="st":
         return st_embedder.SentenceTransformer(config.model, normalize=config.normalize)
