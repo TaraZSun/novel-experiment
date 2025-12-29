@@ -33,8 +33,6 @@ class SemanticChunker(BaseChunker):
         self.precollapse_min_tokens = precollapse_min_tokens
         self.joiner = joiner
 
-    # -------------------- main entry point --------------------
-
     def chunk(self, text: str) -> list[schema.Chunk]:
         # 1) Split text into paragraphs
         paragraphs = [p.strip() for p in re.split(r"\n\s*\n", text) if p.strip()]
@@ -97,7 +95,6 @@ class SemanticChunker(BaseChunker):
         """Write chunks to individual JSON files using the utility function."""
         write_chunks.write_chunks_to_json(chunks, output_dir)
 
-    # -------------------- internal helper functions --------------------
 
     def _precollapse_short_paragraphs(
         self,
