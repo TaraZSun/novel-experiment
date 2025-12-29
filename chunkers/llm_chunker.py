@@ -8,18 +8,12 @@ from pathlib import Path
 import base64
 from .base_chunker import BaseChunker
 from dotenv import load_dotenv
-
+from utils import schema
 load_dotenv()
+from openai import OpenAI
+import yaml
+from constants import CHUNK_SIZE
 
-try:
-    from openai import OpenAI
-except ImportError:
-    raise ImportError("`openai` not installed. Run: pip install openai")
-
-try:
-    import yaml  # PyYAML
-except ImportError:
-    raise ImportError("`PyYAML` not installed. Run: pip install pyyaml")
 
 
 def _load_yaml(path: str | Path) -> Dict[str, str]:
@@ -31,6 +25,14 @@ def _load_yaml(path: str | Path) -> Dict[str, str]:
     if not isinstance(data, dict) or "system" not in data or "user" not in data:
         raise ValueError(f"Prompt YAML must contain 'system' and 'user' keys: {p}")
     return data  # type: ignore[return-value]
+
+def _try_parse_yaml(s: str) -> Dict:
+    data = yaml.safe_load(s)
+    if isinstance(data, list) and data and isinstance(data[0], dict):
+        data = data[0]
+    if isinstance(data, dict):
+        return data
+    raise json.JSONDecodeError("YAML fallback failed", s, 0)
 
 
 def _render_template(tmpl: str, **vars) -> str:
@@ -51,30 +53,30 @@ def _strip_code_fences(s: str) -> str:
 class LLMChunker(BaseChunker):
     """
     LLM-based chunker that uses an external YAML prompt with keys: 'system' and 'user'.
-    The model must return JSON:
-      {"chunks": [{"text": "...", "note": "..."}]}
-    Note: `overlap_sentences` is advisory to the LLM via prompt only.
-
-    This version batches long inputs internally to avoid provider token limits.
+    The model must return JSON like:
+      {"chunks": [{"text": "..."}]} or {"chunks": [{"text_b64": "..."}]}
+    Notes:
+      - `overlap_sentences` is advisory to the LLM via prompt only.
+      - Long inputs are internally batched to avoid provider token limits.
     """
 
     def __init__(
         self,
-        model: str = "llama-3.1-8b-instant",  # Groq default; override if using OpenAI
-        size: int = 500,
+        chunk_size: int = CHUNK_SIZE,
+        model: str = "llama-3.1-8b-instant",  # Groq-compatible; override if using OpenAI
+       
         prompt_path: str | Path = "prompts/llm_chunker_prompt.yaml",
         api_key: Optional[str] = None,
         overlap_sentences: int = 1,
         max_tokens_headroom: int = 50,
-        # NEW: internal batching
-        llm_batch_chars: Optional[int] = 3000,   # ~safe for Groq free tier
-        llm_max_batches: Optional[int] = None,   # cap for testing/debug
+        llm_batch_chars: Optional[int] = 3000,   # paragraph-aware char batching
+        llm_max_batches: Optional[int] = None,   # cap batches for testing/debug
     ):
-        super().__init__(size)
+        super().__init__(chunk_size)
         self.model = model
         self.prompt_path = Path(prompt_path)
         self.overlap_sentences = overlap_sentences
-        self.max_tokens = size + max_tokens_headroom
+        self.max_tokens = max(2000, chunk_size + max_tokens_headroom)
 
         # Prefer Groq if GROQ_API_KEY present; fallback to OpenAI
         groq_key = api_key or os.getenv("GROQ_API_KEY")
@@ -89,8 +91,7 @@ class LLMChunker(BaseChunker):
 
         self.prompt = _load_yaml(self.prompt_path)
 
-        # batching settings
-        # self.llm_batch_chars = int(llm_batch_chars) if llm_batch_chars else 3000
+        # Batching settings (normalize to int)
         self.llm_batch_chars = int(llm_batch_chars or 2000)
         self.llm_max_batches = llm_max_batches
 
@@ -98,16 +99,14 @@ class LLMChunker(BaseChunker):
 
     def _split_into_batches(self, text: str) -> List[str]:
         """
-        Robust paragraph-aware splitter with hard-wrap fallback.
-        - If there are no double newlines, or a paragraph is longer than max_chars,
-        we hard-split by characters to keep each batch under the limit.
+        Paragraph-aware splitter with hard-wrap fallback.
+        Ensures each batch stays under ~llm_batch_chars.
         """
-        max_chars = self.llm_batch_chars  # already an int from __init__
+        max_chars = self.llm_batch_chars
         if len(text) <= max_chars:
             return [text]
 
         paras = text.split("\n\n")
-        # Fallback: no paragraph breaks -> hard-wrap the whole text
         if len(paras) == 1:
             s = paras[0]
             return [s[i : i + max_chars] for i in range(0, len(s), max_chars)]
@@ -117,12 +116,10 @@ class LLMChunker(BaseChunker):
         cur_len = 0
 
         for p in paras:
-            # If a single paragraph is too large, first flush current, then hard-split this paragraph.
-            if len(p) + 2 > max_chars:  # +2 for the two newlines we re-insert normally
+            if len(p) + 2 > max_chars:  # +2 for re-inserted newlines
                 if cur:
                     batches.append("\n\n".join(cur))
                     cur, cur_len = [], 0
-                # hard-wrap the long paragraph
                 for i in range(0, len(p), max_chars):
                     chunk = p[i : i + max_chars]
                     batches.append(chunk)
@@ -130,7 +127,6 @@ class LLMChunker(BaseChunker):
                         return batches[: self.llm_max_batches]
                 continue
 
-            # Normal paragraph packing
             p_len = len(p) + 2
             if cur and (cur_len + p_len) > max_chars:
                 batches.append("\n\n".join(cur))
@@ -149,7 +145,6 @@ class LLMChunker(BaseChunker):
 
         return batches
 
-   
     def _call_llm(self, text: str) -> Dict:
         system_msg = _render_template(
             self.prompt["system"],
@@ -199,26 +194,44 @@ class LLMChunker(BaseChunker):
             m = re.search(r"\{.*\}", s, flags=re.S)
             if m:
                 s = m.group(0)
+            # normalize quotes and booleans
             s = s.replace("“", '"').replace("”", '"').replace("’", "'").replace("\ufeff", "")
             s = re.sub(r"\bNone\b", "null", s)
             s = re.sub(r"\bTrue\b", "true", s)
             s = re.sub(r"\bFalse\b", "false", s)
+            # single-quoted keys/values -> double-quoted
             s = re.sub(r'(?P<pre>[\{\s,])\'(?P<key>[^\'"\n\r\t]+)\'\s*:', r'\g<pre>"\g<key>":', s)
             s = re.sub(r':\s*\'([^\'"]*?)\'', r': "\1"', s)
+            # trailing commas
             s = re.sub(r",\s*([}\]])", r"\1", s)
             return s
 
+                # --- robust parse: JSON -> sanitized JSON -> YAML fallback ---
         try:
             data = _try_parse_json(content)
-        except json.JSONDecodeError:
-            data = _try_parse_json(_sanitize_json(content))
+        except Exception as e_json1:
+            try:
+                data = _try_parse_json(_sanitize_json(content))
+            except Exception as e_json2:
+                try:
+                    data = _try_parse_yaml(content)
+                except Exception as e_yaml:
+                    snippet = content[:500].replace("\n", "\\n")
+                    raise ValueError(
+                        "Failed to parse LLM output as JSON or YAML.\n"
+                        f"JSON error 1: {e_json1}\n"
+                        f"JSON error 2 (sanitized): {e_json2}\n"
+                        f"YAML error: {e_yaml}\n\n"
+                        f"First 500 chars of response:\n{snippet}"
+                    )
 
-        # Expect {"chunks":[{"text_b64": "...", "note": ...}, ...]}
+
+        # Expect {"chunks":[{"text_b64": "...", ...}]} or {"chunks":[{"text": "...", ...}]}
         if not isinstance(data, dict) or "chunks" not in data or not isinstance(data["chunks"], list):
             snippet = content[:500].replace("\n", "\\n")
             raise ValueError(f"LLM returned JSON without a 'chunks' list. First 500 chars: {snippet}")
 
-        # Decode base64 -> "text"; keep backward-compat if model returned "text"
+        # Decode base64 into "text" if necessary; normalize "note" to None (ignored here)
         for i, item in enumerate(data["chunks"]):
             if "text_b64" in item:
                 try:
@@ -227,23 +240,20 @@ class LLMChunker(BaseChunker):
                     raise ValueError(f"Invalid base64 in chunk #{i+1}")
                 item["text"] = raw
                 item.pop("text_b64", None)
-            # normalize note to None if missing
             if "note" not in item or item["note"] == "":
                 item["note"] = None
 
         return data
 
-
-
     # ------- public API -------
 
-    def chunk(self, text: str) -> List[Dict]:
+    def chunk(self, text: str) -> List[schema.Chunk]:
         """
-        If the text is long, automatically split into batches and call the LLM per batch.
-        Merge all returned chunks into one list with monotonically increasing ids.
+        Split long inputs into batches, call the LLM per batch,
+        and return a unified list of `schema.Chunk`.
         """
         batches = self._split_into_batches(text)
-        all_out: List[Dict] = []
+        all_out: List[schema.Chunk] = []
         cid = 1
 
         for batch_text in batches:
@@ -253,13 +263,13 @@ class LLMChunker(BaseChunker):
                 t = (item.get("text") or "").strip()
                 if not t:
                     continue
-                all_out.append({
-                    "id": cid,
-                    "text": t,
-                    "token_count": self.count_tokens(t),
-                    "strategy": "llm",
-                    "note": item.get("note"),
-                })
+                all_out.append(
+                    schema.Chunk(
+                        id=cid,
+                        text=t,
+                        token_count=self.count_tokens(t),
+                    )
+                )
                 cid += 1
 
         return all_out

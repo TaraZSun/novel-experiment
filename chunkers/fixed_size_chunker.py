@@ -1,17 +1,15 @@
 from .base_chunker import BaseChunker
-from typing import List, Dict
-from constants import OVERLAP, CHUNK_SIZE, BATCH_SIZE
+from constants import CHUNK_SIZE
+from utils import schema, write_chunks
 
 class FixedSizeChunker(BaseChunker):
-    """Chunk text into fixed-size token windows (with optional overlap)."""
+    """Chunk text into fixed-size token windows."""
 
-    def __init__(self, chunk_size: int = CHUNK_SIZE, overlap: int = OVERLAP, batch_size: int = BATCH_SIZE)-> None:
+    def __init__(self, chunk_size: int = CHUNK_SIZE)-> None:
         super().__init__(chunk_size)
-        assert 0 <= overlap < chunk_size, "Overlap must be non-negative and less than chunk size."
-        self.overlap = overlap
-        self.batch_size = batch_size
+       
 
-    def chunk(self, text: str) -> List[Dict]:
+    def chunk(self, text: str) -> list[schema.Chunk]:
         text = self._preprocess_text(text)
         tokens = self.tokenizer.encode(text)
 
@@ -22,23 +20,18 @@ class FixedSizeChunker(BaseChunker):
         while start < len(tokens):
             end = min(start + self.chunk_size, len(tokens))
             chunk_text = " ".join(self.tokenizer.decode(tokens[start:end]).split())
-            chunks.append({
-                "id": chunk_id,
-                "text": chunk_text,
-                "token_count": self.count_tokens(chunk_text),
-            })
+            chunks.append(
+                schema.Chunk(
+                id=chunk_id,
+                text=chunk_text,
+                token_count=self.count_tokens(chunk_text),
+                )
+                )
             chunk_id += 1
-            start += self.chunk_size - self.overlap
+            start += self.chunk_size
 
         return chunks
 
-    def chunk_batches(self, text: str, batch_size: int = BATCH_SIZE) -> List[List[Dict]]:
-        """Return a list of chunk batches."""
-        all_chunks = self.chunk(text)
-        return [all_chunks[i:i + batch_size] for i in range(0, len(all_chunks), batch_size)]
-
-    def chunk_batches_generator(self, text: str, batch_size: int = BATCH_SIZE)-> List[Dict]:
-        """Yield batches one by one (memory-efficient for large text)."""
-        all_chunks = self.chunk(text)
-        for i in range(0, len(all_chunks), batch_size):
-            yield all_chunks[i:i + batch_size]
+    def write_chunks(self, chunks: list[schema.Chunk], output_dir: str) -> None:
+        """Write chunks to JSON files using the utility function."""
+        write_chunks.write_chunks_to_json(chunks, output_dir)

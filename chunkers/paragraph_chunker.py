@@ -1,7 +1,6 @@
-# chunkers/paragraph_chunker.py
 import re
-from typing import List, Dict
 from .base_chunker import BaseChunker
+from utils import schema, write_chunks
 
 class ParagraphChunker(BaseChunker):
     """
@@ -16,7 +15,7 @@ class ParagraphChunker(BaseChunker):
         self.min_tokens = max(0, min_tokens)
         self.joiner = joiner
 
-    def _split_paragraphs(self, text: str) -> List[str]:
+    def _split_paragraphs(self, text: str) -> list[str]:
         # normalize and drop leading BOM/newlines
         text = text.lstrip("\ufeff\r\n")
         # split on 1+ blank lines
@@ -24,32 +23,32 @@ class ParagraphChunker(BaseChunker):
         # strip and keep non-empty
         return [p.strip() for p in paras if p.strip()]
 
-    def _split_sentences(self, paragraph: str) -> List[str]:
+    def _split_sentences(self, paragraph: str) -> list[str]:
         # simple sentence splitter; good enough as a fallback
         return [s.strip() for s in re.split(r"(?<=[.!?])\s+", paragraph) if s.strip()]
 
-    def chunk(self, text: str) -> List[Dict]:
+    def chunk(self, text: str) -> list[schema.Chunk]:
         paragraphs = self._split_paragraphs(text)
 
-        chunks: List[Dict] = []
-        buf: List[str] = []
+        chunks: list[schema.Chunk] = []
+        buf: list[str] = []
         buf_tokens = 0
-        cid = 1
+        chunk_id = 1
 
         def flush():
-            nonlocal buf, buf_tokens, cid
+            nonlocal buf, buf_tokens, chunk_id
             if not buf:
                 return
             chunk_text = self.joiner.join(buf).strip()
             tok = self.count_tokens(chunk_text)
             if tok >= self.min_tokens:
-                chunks.append({
-                    "id": cid,
-                    "text": chunk_text,
-                    "token_count": tok,
-                    "strategy": "paragraph",
-                })
-                cid += 1
+                chunks.append(schema.Chunk(
+                                id = chunk_id,
+                                text = chunk_text,
+                                token_count = tok,
+                             
+                            ))
+                chunk_id += 1
             buf = []
             buf_tokens = 0
 
@@ -67,13 +66,13 @@ class ParagraphChunker(BaseChunker):
                         toks = self.tokenizer.encode(s)
                         for i in range(0, len(toks), self.chunk_size):
                             part = self.tokenizer.decode(toks[i:i+self.chunk_size])
-                            chunks.append({
-                                "id": cid,
-                                "text": part,
-                                "token_count": self.count_tokens(part),
-                                "strategy": "paragraph_fallback_sentence",
-                            })
-                            cid += 1
+                            chunks.append(schema.Chunk(
+                                id = chunk_id,
+                                text = part,
+                                token_count = self.count_tokens(part),
+                             
+                            ))
+                            chunk_id += 1
                         continue
 
                     if buf_tokens + st <= self.chunk_size and buf:
@@ -96,3 +95,6 @@ class ParagraphChunker(BaseChunker):
 
         flush()
         return chunks
+
+    def write_chunks_to_json(self, chunks: list[schema.Chunk], output_dir: str) -> None:
+        write_chunks.write_chunks_to_json(chunks, output_dir)
