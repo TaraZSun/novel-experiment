@@ -1,5 +1,4 @@
 from __future__ import annotations
-import re
 from pathlib import Path
 
 
@@ -9,7 +8,16 @@ ENCODING_NAME = "cl100k_base"
 
 ROOT_PATH = Path(__file__).resolve().parent
 DATA_DIR = ROOT_PATH / "data"
-NODEL_PATH = DATA_DIR / "alice.txt"
+NOVEL_PATH = DATA_DIR / "alice.txt"
+
+
+SEGMENT_SIZE = 50
+JOINER = ""
+PRECOLLAPSE_MIN_TOKRNS: int = 80
+FILL_FLOOR: float = 0.9
+
+
+
 
 
 # [text](url) -> keep "text"
