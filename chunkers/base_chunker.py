@@ -13,7 +13,7 @@ class BaseChunker(abc.ABC):
     def count_tokens(self, text:str)->int:
         return len(self.tokenizer.encode(text))
 
-    def preprocess(self, text:str)->str:
+    def _preprocess_text(self, text:str)->str:
         return preprocess_text(text, self.config)
     
     @abc.abstractmethod

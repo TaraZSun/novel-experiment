@@ -17,7 +17,7 @@ _MARKDOWN_RULES: list[tuple[re.Pattern,str]] = [
     (re.compile(MARKDOWN_BOLD_REGEX), r"\2"),
     (re.compile(MARKDOWN_ITALIC_REGEX), r"\2"),
     (re.compile(MARKDOWN_CODE_REGEX), r"\1"),
-    (re.compile(MARKDOWN_HEADER_REGEX), r"\1"),
+    (re.compile(MARKDOWN_HEADER_REGEX, re.MULTILINE), r"\1"),
 ]
 
 
